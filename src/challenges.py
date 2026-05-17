@@ -1,217 +1,225 @@
-"""Tests for Week 11: Midnight Monster Delivery."""
+"""Week 11: Midnight Monster Delivery.
 
-import pytest
+Implement Dijkstra's algorithm using a heap-based priority queue.
+
+Rules:
+- Use Python 3.11+.
+- Use the standard library only.
+- Use heapq for the priority queue.
+- Edge weights must be positive.
+"""
+
+import heapq
 from math import inf
-from week11 import (
-    HAUNTED_CITY,
-    validate_haunted_map,
-    monster_delivery_costs,
-    shortest_monster_delivery,
-    best_next_monster_stop,
-)
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def small_graph() -> dict:
-    """A simple 3-node graph for quick checks."""
-    return {
-        "A": {"B": 1, "C": 4},
-        "B": {"C": 2},
-        "C": {},
-    }
-
-
-@pytest.fixture
-def disconnected_graph() -> dict:
-    """Graph where one node is unreachable."""
-    return {
-        "A": {"B": 3},
-        "B": {},
-        "C": {},          # C is isolated
-    }
-
-
-# ---------------------------------------------------------------------------
-# validate_haunted_map
-# ---------------------------------------------------------------------------
-
-def test_validate_accepts_valid_graph():
-    validate_haunted_map(HAUNTED_CITY)  # should not raise
+HAUNTED_CITY = {
+    "Crypt Kitchen": {
+        "Fog Alley": 2,
+        "Bone Bridge": 5,
+    },
+    "Fog Alley": {
+        "Moon Bridge": 1,
+        "Goblin Market": 6,
+    },
+    "Bone Bridge": {
+        "Goblin Market": 2,
+    },
+    "Moon Bridge": {
+        "Werewolf Den": 5,
+        "Goblin Market": 3,
+    },
+    "Goblin Market": {
+        "Vampire Tower": 5,
+    },
+    "Werewolf Den": {
+        "Vampire Tower": 2,
+    },
+    "Vampire Tower": {},
+}
 
 
-def test_validate_rejects_non_dict():
-    with pytest.raises(ValueError):
-        validate_haunted_map("not a graph")  # type: ignore
+def validate_haunted_map(graph: dict[str, dict[str, int]]) -> None:
+    """Raise ValueError if the haunted map is invalid.
+
+    A valid haunted map:
+    - is a dictionary
+    - each node maps to a dictionary of neighbors
+    - every neighbor is also a node in the graph
+    - every edge weight is positive
+
+    Args:
+        graph: Weighted graph represented as an adjacency dictionary.
+
+    Raises:
+        ValueError: If the graph is invalid.
+    """
+    if not isinstance(graph, dict):
+        raise ValueError("Graph must be a dictionary.")
+
+    for node, neighbors in graph.items():
+        if not isinstance(neighbors, dict):
+            raise ValueError(
+                f"Node '{node}' must map to a dictionary of neighbors."
+            )
+        for neighbor, weight in neighbors.items():
+            if neighbor not in graph:
+                raise ValueError(
+                    f"Neighbor '{neighbor}' of '{node}' is not a node in the graph."
+                )
+            if not isinstance(weight, (int, float)) or weight <= 0:
+                raise ValueError(
+                    f"Edge weight from '{node}' to '{neighbor}' must be positive, got {weight}."
+                )
 
 
-def test_validate_rejects_non_dict_neighbors():
-    with pytest.raises(ValueError):
-        validate_haunted_map({"A": ["B"]})  # type: ignore
+def monster_delivery_costs(
+    graph: dict[str, dict[str, int]],
+    start: str,
+) -> dict[str, float]:
+    """Return the cheapest delivery cost from start to every location.
+
+    Use Dijkstra's algorithm with heapq.
+
+    Args:
+        graph: Weighted graph represented as an adjacency dictionary.
+        start: Starting location.
+
+    Returns:
+        Dictionary mapping each location to its cheapest known cost.
+        Unreachable locations should stay as math.inf.
+
+    Raises:
+        ValueError: If the graph is invalid or start is missing.
+    """
+    validate_haunted_map(graph)
+    if start not in graph:
+        raise ValueError(f"Start location '{start}' is not in the graph.")
+
+    # Initialise all costs to infinity, then set start to 0.
+    costs: dict[str, float] = {node: inf for node in graph}
+    costs[start] = 0
+
+    # Min-heap entries are (cost, node).
+    heap: list[tuple[float, str]] = [(0, start)]
+
+    while heap:
+        current_cost, current_node = heapq.heappop(heap)
+
+        # Skip if we already found a cheaper path to this node.
+        if current_cost > costs[current_node]:
+            continue
+
+        for neighbor, weight in graph[current_node].items():
+            new_cost = current_cost + weight
+            if new_cost < costs[neighbor]:
+                costs[neighbor] = new_cost
+                heapq.heappush(heap, (new_cost, neighbor))
+
+    return costs
 
 
-def test_validate_rejects_unknown_neighbor():
-    with pytest.raises(ValueError):
-        validate_haunted_map({"A": {"Z": 1}})  # Z not in graph
+def shortest_monster_delivery(
+    graph: dict[str, dict[str, int]],
+    start: str,
+    target: str,
+) -> tuple[float, list[str]]:
+    """Return the cheapest cost and path from start to target.
+
+    Use Dijkstra's algorithm with heapq and reconstruct the path using
+    a previous-node map.
+
+    Args:
+        graph: Weighted graph represented as an adjacency dictionary.
+        start: Starting location.
+        target: Destination location.
+
+    Returns:
+        (cost, path), where path is in start-to-target order.
+        If start or target is missing, return (math.inf, []).
+        If target is unreachable, return (math.inf, []).
+        If start equals target, return (0, [start]).
+    """
+    validate_haunted_map(graph)
+
+    if start not in graph or target not in graph:
+        return (inf, [])
+
+    if start == target:
+        return (0, [start])
+
+    costs: dict[str, float] = {node: inf for node in graph}
+    costs[start] = 0
+    previous: dict[str, str | None] = {node: None for node in graph}
+
+    heap: list[tuple[float, str]] = [(0, start)]
+
+    while heap:
+        current_cost, current_node = heapq.heappop(heap)
+
+        if current_cost > costs[current_node]:
+            continue
+
+        for neighbor, weight in graph[current_node].items():
+            new_cost = current_cost + weight
+            if new_cost < costs[neighbor]:
+                costs[neighbor] = new_cost
+                previous[neighbor] = current_node
+                heapq.heappush(heap, (new_cost, neighbor))
+
+    # Target is unreachable.
+    if costs[target] == inf:
+        return (inf, [])
+
+    # Reconstruct path by walking backwards through previous-node map.
+    path: list[str] = []
+    node: str | None = target
+    while node is not None:
+        path.append(node)
+        node = previous[node]
+    path.reverse()
+
+    return (costs[target], path)
 
 
-def test_validate_rejects_zero_weight():
-    with pytest.raises(ValueError):
-        validate_haunted_map({"A": {"B": 0}, "B": {}})
+def best_next_monster_stop(
+    graph: dict[str, dict[str, int]],
+    start: str,
+    targets: list[str],
+) -> tuple[str, float]:
+    """Return the reachable target with the cheapest delivery cost.
 
+    Stretch challenge.
 
-def test_validate_rejects_negative_weight():
-    with pytest.raises(ValueError):
-        validate_haunted_map({"A": {"B": -3}, "B": {}})
+    Rules:
+    - Ignore unreachable targets.
+    - If no target is reachable, return ("", math.inf).
+    - If there is a tie, return the target that appears first in targets.
 
+    Args:
+        graph: Weighted graph represented as an adjacency dictionary.
+        start: Starting location.
+        targets: Possible destination locations.
 
-def test_validate_accepts_small_graph(small_graph):
-    validate_haunted_map(small_graph)  # should not raise
+    Returns:
+        A tuple of (target, cost).
+    """
+    validate_haunted_map(graph)
+    if start not in graph:
+        return ("", inf)
 
+    # Run Dijkstra once from start, then check each target.
+    costs = monster_delivery_costs(graph, start)
 
-# ---------------------------------------------------------------------------
-# monster_delivery_costs
-# ---------------------------------------------------------------------------
+    best_target = ""
+    best_cost: float = inf
 
-def test_costs_start_is_zero():
-    costs = monster_delivery_costs(HAUNTED_CITY, "Crypt Kitchen")
-    assert costs["Crypt Kitchen"] == 0
+    for target in targets:
+        if target not in graph:
+            continue
+        cost = costs[target]
+        if cost < best_cost:
+            best_cost = cost
+            best_target = target
 
-
-def test_costs_known_values():
-    costs = monster_delivery_costs(HAUNTED_CITY, "Crypt Kitchen")
-    # Crypt Kitchen → Fog Alley = 2
-    assert costs["Fog Alley"] == 2
-    # Crypt Kitchen → Fog Alley → Moon Bridge = 2+1 = 3
-    assert costs["Moon Bridge"] == 3
-    # Crypt Kitchen → Fog Alley → Moon Bridge → Werewolf Den = 3+5 = 8
-    assert costs["Werewolf Den"] == 8
-    # Best path to Goblin Market: Crypt Kitchen→Fog Alley→Moon Bridge→Goblin Market = 2+1+3=6
-    assert costs["Goblin Market"] == 6
-    # Best path to Vampire Tower: through Werewolf Den = 8+2 = 10
-    assert costs["Vampire Tower"] == 10
-
-
-def test_costs_unreachable_is_inf(disconnected_graph):
-    costs = monster_delivery_costs(disconnected_graph, "A")
-    assert costs["C"] == inf
-
-
-def test_costs_invalid_start():
-    with pytest.raises(ValueError):
-        monster_delivery_costs(HAUNTED_CITY, "Nowhere")
-
-
-def test_costs_all_nodes_present():
-    costs = monster_delivery_costs(HAUNTED_CITY, "Crypt Kitchen")
-    assert set(costs.keys()) == set(HAUNTED_CITY.keys())
-
-
-def test_costs_small_graph(small_graph):
-    costs = monster_delivery_costs(small_graph, "A")
-    assert costs["A"] == 0
-    assert costs["B"] == 1
-    assert costs["C"] == 3   # A→B→C = 1+2, cheaper than A→C = 4
-
-
-# ---------------------------------------------------------------------------
-# shortest_monster_delivery
-# ---------------------------------------------------------------------------
-
-def test_shortest_start_equals_target():
-    cost, path = shortest_monster_delivery(HAUNTED_CITY, "Crypt Kitchen", "Crypt Kitchen")
-    assert cost == 0
-    assert path == ["Crypt Kitchen"]
-
-
-def test_shortest_known_path():
-    cost, path = shortest_monster_delivery(
-        HAUNTED_CITY, "Crypt Kitchen", "Vampire Tower"
-    )
-    assert cost == 10
-    assert path[0] == "Crypt Kitchen"
-    assert path[-1] == "Vampire Tower"
-
-
-def test_shortest_path_is_valid_route():
-    """Every consecutive pair in the returned path must be a real edge."""
-    cost, path = shortest_monster_delivery(
-        HAUNTED_CITY, "Crypt Kitchen", "Vampire Tower"
-    )
-    for i in range(len(path) - 1):
-        assert path[i + 1] in HAUNTED_CITY[path[i]], (
-            f"No edge from {path[i]} to {path[i+1]}"
-        )
-
-
-def test_shortest_missing_start():
-    cost, path = shortest_monster_delivery(HAUNTED_CITY, "Nowhere", "Vampire Tower")
-    assert cost == inf
-    assert path == []
-
-
-def test_shortest_missing_target():
-    cost, path = shortest_monster_delivery(HAUNTED_CITY, "Crypt Kitchen", "Nowhere")
-    assert cost == inf
-    assert path == []
-
-
-def test_shortest_unreachable_target(disconnected_graph):
-    cost, path = shortest_monster_delivery(disconnected_graph, "A", "C")
-    assert cost == inf
-    assert path == []
-
-
-def test_shortest_small_graph(small_graph):
-    cost, path = shortest_monster_delivery(small_graph, "A", "C")
-    assert cost == 3
-    assert path == ["A", "B", "C"]
-
-
-# ---------------------------------------------------------------------------
-# best_next_monster_stop  (stretch)
-# ---------------------------------------------------------------------------
-
-def test_best_stop_picks_cheapest():
-    result_target, result_cost = best_next_monster_stop(
-        HAUNTED_CITY,
-        "Crypt Kitchen",
-        ["Goblin Market", "Vampire Tower"],
-    )
-    # Goblin Market costs 6, Vampire Tower costs 10
-    assert result_target == "Goblin Market"
-    assert result_cost == 6
-
-
-def test_best_stop_ignores_unreachable(disconnected_graph):
-    target, cost = best_next_monster_stop(disconnected_graph, "A", ["C"])
-    assert target == ""
-    assert cost == inf
-
-
-def test_best_stop_tie_picks_first():
-    # Build a graph where two targets have equal cost.
-    graph = {
-        "Start": {"X": 3, "Y": 3},
-        "X": {},
-        "Y": {},
-    }
-    target, cost = best_next_monster_stop(graph, "Start", ["X", "Y"])
-    assert target == "X"   # X appears first in targets list
-    assert cost == 3
-
-
-def test_best_stop_no_targets():
-    target, cost = best_next_monster_stop(HAUNTED_CITY, "Crypt Kitchen", [])
-    assert target == ""
-    assert cost == inf
-
-
-def test_best_stop_invalid_start():
-    # Invalid start not in graph → returns ("", inf) gracefully
-    target, cost = best_next_monster_stop(HAUNTED_CITY, "Nowhere", ["Goblin Market"])
-    assert target == ""
-    assert cost == inf
+    return (best_target, best_cost)
